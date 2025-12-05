@@ -40,6 +40,7 @@ type Api struct {
 	traceHeader               string
 	basicAuthUsername         string
 	basicAuthPassword         string
+	chromiumBearerToken       string
 	downloadFromCfg           downloadFromConfig
 	disableHealthCheckLogging bool
 	enableDebugRoute          bool
@@ -248,6 +249,12 @@ func (a *Api) Provision(ctx *gotenberg.Context) error {
 		}
 		a.basicAuthUsername = basicAuthUsername
 		a.basicAuthPassword = basicAuthPassword
+	}
+
+	// Get Chromium bearer token from environment
+	chromiumBearerToken, err := gotenberg.StringEnv("CHROMIUM_BEARER_TOKEN")
+	if err == nil {
+		a.chromiumBearerToken = chromiumBearerToken
 	}
 
 	// Get routes from modules.
@@ -481,10 +488,10 @@ func (a *Api) Start() error {
 
 	hardTimeout := a.timeout + (time.Duration(5) * time.Second)
 
-	// Basic auth?
+	// Security middleware (basic auth and/or bearer token)
 	var securityMiddleware echo.MiddlewareFunc
-	if a.basicAuthUsername != "" {
-		securityMiddleware = basicAuthMiddleware(a.basicAuthUsername, a.basicAuthPassword)
+	if a.basicAuthUsername != "" || a.chromiumBearerToken != "" {
+		securityMiddleware = securityMiddlewareFunc(a.basicAuthUsername, a.basicAuthPassword, a.chromiumBearerToken)
 	} else {
 		securityMiddleware = func(next echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {

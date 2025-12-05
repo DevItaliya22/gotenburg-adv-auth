@@ -255,15 +255,60 @@ func loggerMiddleware(logger *zap.Logger, disableLoggingForPaths []string) echo.
 	}
 }
 
-// basicAuthMiddleware manages basic authentication.
-func basicAuthMiddleware(username, password string) echo.MiddlewareFunc {
-	return middleware.BasicAuth(func(u string, p string, e echo.Context) (bool, error) {
-		if subtle.ConstantTimeCompare([]byte(u), []byte(username)) == 1 &&
-			subtle.ConstantTimeCompare([]byte(p), []byte(password)) == 1 {
-			return true, nil
+// securityMiddlewareFunc manages authentication (basic auth and/or bearer token).
+// If both are configured, either authentication method will be accepted.
+func securityMiddlewareFunc(basicAuthUsername, basicAuthPassword, bearerToken string) echo.MiddlewareFunc {
+	hasBasicAuth := basicAuthUsername != ""
+	hasBearerToken := bearerToken != ""
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			authHeader := c.Request().Header.Get("Authorization")
+			hasBearerHeader := authHeader != "" && strings.HasPrefix(authHeader, "Bearer ")
+
+			// Check bearer token authentication if configured
+			if hasBearerToken {
+				if hasBearerHeader {
+					// Bearer token provided - validate it
+					prefix := "Bearer "
+					token := strings.TrimPrefix(authHeader, prefix)
+					if token != "" {
+						// Use constant-time comparison to prevent timing attacks
+						if subtle.ConstantTimeCompare([]byte(token), []byte(bearerToken)) == 1 {
+							return next(c)
+						}
+					}
+					// Invalid bearer token - return unauthorized
+					return c.JSON(http.StatusUnauthorized, map[string]string{
+						"error": "Invalid bearer token",
+					})
+				}
+			}
+
+			// Check basic authentication if configured
+			if hasBasicAuth {
+				// Use Echo's BasicAuth middleware for basic auth
+				basicAuthMw := middleware.BasicAuth(func(u string, p string, e echo.Context) (bool, error) {
+					if subtle.ConstantTimeCompare([]byte(u), []byte(basicAuthUsername)) == 1 &&
+						subtle.ConstantTimeCompare([]byte(p), []byte(basicAuthPassword)) == 1 {
+						return true, nil
+					}
+					return false, nil
+				})
+				return basicAuthMw(next)(c)
+			}
+
+			// If bearer token is required but not provided, return unauthorized
+			if hasBearerToken {
+				return c.JSON(http.StatusUnauthorized, map[string]string{
+					"error": "Authorization required. Provide a valid Bearer token or Basic Auth credentials.",
+				})
+			}
+
+			// No authentication required
+			return next(c)
 		}
-		return false, nil
-	})
+	}
 }
 
 // contextMiddleware, middleware for "multipart/form-data" requests, sets the

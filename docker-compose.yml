@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  gotenberg:
+    image: gotenberg/gotenberg:latest
+    container_name: gotenberg
+    ports:
+      - "3000:3000"
+
+    # Load environment variables from .env file
+    env_file:
+      - .env
+
+    # Health check
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Note: Resource limits are handled by Render's plan (starter/standard/pro)
+    # For local development, you can add resource limits if needed:
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "2"
+    #       memory: 2G
